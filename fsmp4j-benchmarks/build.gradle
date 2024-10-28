@@ -1,6 +1,20 @@
-dependencies {
-    //jmhCompile project('src/jmh/java')
-    //jmhCompile 'org.openjdk.jmh:jmh-core:1.37'
-    //jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
+plugins {
+    id "me.champeau.jmh" version "0.7.2"
 }
 
+sourceSets {
+    jmh {
+        java.srcDirs = ['src/jmh/java']
+    }
+}
+
+dependencies {
+    implementation project(':fsmp4j')
+    compileOnly('org.openjdk.jmh:jmh-core:1.37')
+    annotationProcessor('org.openjdk.jmh:jmh-generator-annprocess:1.37')
+}
+
+jmh {
+    includes = ["PoolBenchmark"]
+    // remaining JMH options go here...
+}
