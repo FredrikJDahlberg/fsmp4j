@@ -16,5 +16,4 @@ dependencies {
 
 jmh {
     includes = ["PoolBenchmark"]
-    // remaining JMH options go here...
 }

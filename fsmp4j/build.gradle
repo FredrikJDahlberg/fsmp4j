@@ -18,4 +18,10 @@ test {
     maxHeapSize = "2048m" // maximum heap size
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(23)
+    }
+}
 
+version = '1.0.0'
