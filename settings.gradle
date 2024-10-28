@@ -1,0 +1,4 @@
+rootProject.name = 'fpg'
+include 'fsmp4j'
+//include 'fsmp4j-benchmarks'
+
