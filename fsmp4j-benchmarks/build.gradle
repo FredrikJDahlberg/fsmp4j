@@ -17,5 +17,5 @@ dependencies {
 }
 
 jmh {
-    includes = ['PoolBenchmark']
+    includes = ['Benchmark']
 }
