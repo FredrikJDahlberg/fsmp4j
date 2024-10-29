@@ -11,11 +11,11 @@ test {
     useJUnitPlatform()
     testLogging.showStandardStreams = true
     testLogging {
-        events "passed", "skipped", "failed"
+        events 'passed', 'skipped', 'failed'
     }
     failFast = true
-    minHeapSize = "1024m" // initial heap size
-    maxHeapSize = "2048m" // maximum heap size
+    minHeapSize = '1024m' // initial heap size
+    maxHeapSize = '2048m' // maximum heap size
 }
 
 java {

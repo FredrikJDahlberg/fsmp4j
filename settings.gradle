@@ -1,4 +1,4 @@
-rootProject.name = 'fsmp4j-gradle'
+rootProject.name = 'fsmp4j'
 include 'fsmp4j'
 include 'fsmp4j-benchmarks'
 
