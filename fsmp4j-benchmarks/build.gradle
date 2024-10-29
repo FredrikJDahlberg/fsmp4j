@@ -2,6 +2,8 @@ plugins {
     id 'me.champeau.jmh' version '0.7.2'
 }
 
+version = '1.0.0'
+
 sourceSets {
     jmh {
         java.srcDirs = ['src/jmh/java']
