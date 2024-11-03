@@ -160,7 +160,7 @@ public class BlockPool<T extends BlockFlyweight> {
             throw new IllegalStateException("block does not belong to this pool");
         }
 
-        final int blockIndex = block.index();
+        final int blockIndex = block.block();
         final long offset = (long) blockIndex * blockLength;
         freeBlock.wrap(segment, offset).set(freeSegmentPosition, freeBlockPosition);
         freeSegmentPosition = segmentIndex;

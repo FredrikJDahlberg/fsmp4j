@@ -1,6 +1,8 @@
 package org.limitless.fsmp4j;
 
 import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.HashMap;
 
 import org.junit.jupiter.api.Test;
@@ -13,70 +15,69 @@ public class BlockPoolTest {
     public void allocateRemoveOneSegment() {
         final var pool = new BlockPool.Builder<>(Arena.ofShared(), TestFlyweight.class)
             .blocksPerSegment(16).build();
-        final var pl1 = pool.allocate().int64(101_0000).int32(200).int16((short) 1);
-        assertEquals(0, pl1.segment());
-        assertEquals(0, pl1.index());
+        final var block1 = pool.allocate().int64(101_0000).int32(200).int16((short) 1);
+        assertEquals(0, block1.segment());
+        assertEquals(0, block1.block());
 
-        final var pl2 = pool.allocate().int64(102_0000).int32(200).int16((short) 1);
-        assertEquals(0, pl2.segment());
-        assertEquals(1, pl2.index());
+        final var block2 = pool.allocate().int64(102_0000).int32(200).int16((short) 1);
+        assertEquals(0, block2.segment());
+        assertEquals(1, block2.block());
 
-        final var pl3 = pool.allocate().int64(103_0000).int32(300).int16((short) 2);
-        assertEquals(0, pl3.segment());
-        assertEquals(2, pl3.index());
+        final var block3 = pool.allocate().int64(103_0000).int32(300).int16((short) 2);
+        assertEquals(0, block3.segment());
+        assertEquals(2, block3.block());
 
-        assertDoesNotThrow(() -> pool.free(pl1));
-        assertDoesNotThrow(() -> pool.free(pl3));
+        assertDoesNotThrow(() -> pool.free(block1));
+        assertDoesNotThrow(() -> pool.free(block3));
 
-        final var pl7 = pool.allocate().int64(107_0000).int32(300).int16((short) 2);
-        assertEquals(0, pl7.segment());
-        assertEquals(2, pl7.index());
+        final var block7 = pool.allocate().int64(107_0000).int32(300).int16((short) 2);
+        assertEquals(0, block7.segment());
+        assertEquals(2, block7.block());
 
-        final var pl8 = pool.allocate().int64(108_0000).int32(300).int16((short) 2);
-        assertEquals(0, pl8.segment());
-        assertEquals(0, pl8.index());
+        final var block8 = pool.allocate().int64(108_0000).int32(300).int16((short) 2);
+        assertEquals(0, block8.segment());
+        assertEquals(0, block8.block());
 
         pool.close();
     }
 
     @Test
-    public void allocateRemoveMultipleSegments() {
-        final var pool = new BlockPool.Builder<>(Arena.ofShared(), TestFlyweight.class)
-            /*.pagesPerSegment(1)*/.blocksPerSegment(64).build();
-        final var pl1 = pool.allocate().int64(101_0000).int32(200).int16((short) 1);
-        assertEquals(0, pl1.segment());
-        assertEquals(0, pl1.index());
+    public void allocateRemoveMultiblockeSegments() {
+        final var pool = new BlockPool.Builder<>(Arena.ofShared(), TestFlyweight.class).blocksPerSegment(64).build();
+        final var block1 = pool.allocate().int64(101_0000).int32(200).int16((short) 1);
+        assertEquals(0, block1.segment());
+        assertEquals(0, block1.block());
 
-        final var pl2 = pool.allocate().int64(102_0000).int32(200).int16((short) 1);
-        assertEquals(0, pl2.segment());
-        assertEquals(1, pl2.index());
+        final var block2 = pool.allocate().int64(102_0000).int32(200).int16((short) 1);
+        assertEquals(0, block2.segment());
+        assertEquals(1, block2.block());
 
-        final var pl3 = pool.allocate().int64(103_0000).int32(300).int16((short) 2);
-        assertEquals(0, pl3.segment());
-        assertEquals(2, pl3.index());
+        final var block3 = pool.allocate().int64(103_0000).int32(300).int16((short) 2);
+        assertEquals(0, block3.segment());
+        assertEquals(2, block3.block());
 
-        final var pl4 = pool.allocate().int64(104_0000).int32(300).int16((short) 2);
-        assertEquals(0, pl4.segment());
-        assertEquals(3, pl4.index());
+        final var block4 = pool.allocate().int64(104_0000).int32(300).int16((short) 2);
+        assertEquals(0, block4.segment());
+        assertEquals(3, block4.block());
 
         for (int position = 0; position < 60; ++position) {
             pool.allocate();
         }
 
-        final var pl5 = pool.allocate().int64(105_0000).int32(300).int16((short) 2);
-        assertEquals(1, pl5.segment());
-        assertEquals(0, pl5.index());
+        final var block5 = pool.allocate().int64(105_0000).int32(300).int16((short) 2);
+        assertEquals(1, block5.segment());
+        assertEquals(0, block5.block());
 
-        assertDoesNotThrow(() -> pool.free(pl5));
-        assertDoesNotThrow(() -> pool.free(pl4));
+        assertDoesNotThrow(() -> pool.free(block5));
+        assertDoesNotThrow(() -> pool.free(block4));
 
-        final var pl7 = pool.allocate().int64(107_0000).int32(300).int16((short) 2);
-        assertEquals(0, pl7.segment());
-        assertEquals(3, pl7.index());
+        final var block7 = pool.allocate().int64(107_0000).int32(300).int16((short) 2);
+        assertEquals(0, block7.segment());
+        assertEquals(3, block7.block());
 
-        final var pl8 = pool.allocate().int64(108_0000).int32(300).int16((short) 2);
-        assertEquals(1, pl8.segment());
-        assertEquals(0, pl8.index());
+        final var block8 = pool.allocate().int64(108_0000).int32(300).int16((short) 2);
+        assertEquals(1, block8.segment());
+        assertEquals(0, block8.block());
 
         pool.close();
     }
@@ -85,29 +86,29 @@ public class BlockPoolTest {
     public void addressMapping() {
         final var pool = new BlockPool.Builder<>(Arena.ofShared(), TestFlyweight.class)
             .blocksPerSegment(16).build();
-        final var pl1 = pool.allocate().int64(101_0000).int32(200).int16((short) 1);
-        assertNotNull(pl1);
+        final var block1 = pool.allocate().int64(101_0000).int32(200).int16((short) 1);
+        assertNotNull(block1);
 
-        final var address1 = pl1.address();
+        final var address1 = block1.address();
         assertEquals(1L << 32, address1);
-        assertEquals(0, pl1.segment());
-        assertEquals(0, pl1.index());
+        assertEquals(0, block1.segment());
+        assertEquals(0, block1.block());
 
-        final var pl2 = pool.get(address1);
-        assertEquals(pl1, pl2);
+        final var block2 = pool.get(address1);
+        assertEquals(block1, block2);
 
-        final var pl3 = new TestFlyweight();
-        assertNull(pl3.memorySegment());
-        assertEquals(-1, pl3.address());
-        pool.get(address1, pl3);
-        assertNotNull(pl3.memorySegment());
-        assertEquals(pl1, pl3);
+        final var block3 = new TestFlyweight();
+        assertNull(block3.memorySegment());
+        assertEquals(-1, block3.address());
+        pool.get(address1, block3);
+        assertNotNull(block3.memorySegment());
+        assertEquals(block1, block3);
 
-        final var pl4 = new TestFlyweight();
-        assertNull(pl4.memorySegment());
-        pool.allocate(pl4);
-        assertEquals(0, pl4.segment());
-        assertEquals(2, pl4.index());
+        final var block4 = new TestFlyweight();
+        assertNull(block4.memorySegment());
+        pool.allocate(block4);
+        assertEquals(0, block4.segment());
+        assertEquals(2, block4.block());
 
         assertThrows(IllegalArgumentException.class, () -> pool.get(0, null));
 
@@ -152,33 +153,33 @@ public class BlockPoolTest {
     @Test
     public void preAllocSegments() {
         final var pool = new BlockPool.Builder<>(Arena.ofShared(), TestFlyweight.class).blocksPerSegment(64).build();
-        var pl1 = pool.allocate();
-        assertEquals(0, pl1.segment());
-        assertEquals(0, pl1.index());
+        var block1 = pool.allocate();
+        assertEquals(0, block1.segment());
+        assertEquals(0, block1.block());
 
-        var pl2 = pool.allocate();
-        assertEquals(0, pl2.segment());
-        assertEquals(1, pl2.index());
-
-        for (int position = 0; position < 62; ++position) {
-            pool.allocate();
-        }
-
-        var pl3 = pool.allocate();
-        assertEquals(1, pl3.segment());
-        assertEquals(0, pl3.index());
-
-        var pl4 = pool.allocate();
-        assertEquals(1, pl4.segment());
-        assertEquals(1, pl4.index());
+        var block2 = pool.allocate();
+        assertEquals(0, block2.segment());
+        assertEquals(1, block2.block());
 
         for (int position = 0; position < 62; ++position) {
             pool.allocate();
         }
 
-        var pl5 = pool.allocate();
-        assertEquals(2, pl5.segment());
-        assertEquals(0, pl5.index());
+        var block3 = pool.allocate();
+        assertEquals(1, block3.segment());
+        assertEquals(0, block3.block());
+
+        var block4 = pool.allocate();
+        assertEquals(1, block4.segment());
+        assertEquals(1, block4.block());
+
+        for (int position = 0; position < 62; ++position) {
+            pool.allocate();
+        }
+
+        var block5 = pool.allocate();
+        assertEquals(2, block5.segment());
+        assertEquals(0, block5.block());
 
         pool.close();
     }
@@ -194,9 +195,9 @@ public class BlockPoolTest {
     public void skipChecks() {
         final var pool = new BlockPool.Builder<>(Arena.ofShared(), TestFlyweight.class)
             .blocksPerSegment(16).build();
-        final var pl1 = pool.allocate();
-        assertEquals(0, pl1.segment());
-        assertEquals(0, pl1.index());
+        final var block1 = pool.allocate();
+        assertEquals(0, block1.segment());
+        assertEquals(0, block1.block());
     }
 
     @Test

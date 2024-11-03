@@ -34,7 +34,7 @@ public abstract class BlockFlyweight implements Flyweight {
      * @return block index
      */
     @Override
-    public int index() {
+    public int block() {
         return blockIndex;
     }
 
@@ -178,7 +178,7 @@ public abstract class BlockFlyweight implements Flyweight {
      * @param offset in flyweight
      * @return field segment offset
      */
-    private long fieldOffset(final int offset) {
+    protected long fieldOffset(final int offset) {
         return (long) blockIndex * encodedLength() + offset;
     }
 
@@ -194,8 +194,7 @@ public abstract class BlockFlyweight implements Flyweight {
         if (bytes == null) {
             throw new IllegalArgumentException("null argument");
         }
-        final long position = (long) blockIndex * encodedLength() + offset;
-        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, position, bytes, 0, length);
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), bytes, 0, length);
         return bytes;
     }
 
@@ -211,8 +210,7 @@ public abstract class BlockFlyweight implements Flyweight {
         if (bytes == null) {
             throw new IllegalArgumentException("null argument");
         }
-        final long position = (long) blockIndex * encodedLength() + offset;
-        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, position, bytes, dstOffset, length);
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), bytes, 0, length);
         return bytes;
     }
 
@@ -228,6 +226,21 @@ public abstract class BlockFlyweight implements Flyweight {
             throw new IllegalArgumentException("null argument");
         }
         MemorySegment.copy(bytes, 0, segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), length);
+    }
+
+    /**
+     * Set the byte array
+     * @param bytes source
+     * @param position source position
+     * @param offset flyweight string offset
+     * @param length array length
+     * @throws IllegalArgumentException null value
+     */
+    protected void nativeByteArray(final int position, final byte[] bytes, final int offset, final int length) {
+        if (bytes == null) {
+            throw new IllegalArgumentException("null argument");
+        }
+        MemorySegment.copy(bytes, position, segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), length);
     }
 
     /**

@@ -6,7 +6,7 @@ public interface Flyweight {
 
     void wrap(final MemorySegment memoryAddress, final int segment, final int block);
 
-    int index();
+    int block();
 
     int segment();
 
