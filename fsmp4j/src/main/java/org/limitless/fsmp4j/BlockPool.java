@@ -221,8 +221,7 @@ public class BlockPool<T extends BlockFlyweight> {
     private void allocateSegment() {
         if (++segmentPosition >= segmentCount) {
             if (segmentCount >= memorySegments.length) {
-                int newCapacity = memorySegments.length + (memorySegments.length >>> 1);
-                memorySegments = Arrays.copyOf(memorySegments, newCapacity);
+                memorySegments = Arrays.copyOf(memorySegments, memorySegments.length << 1);
             }
 
             final long segmentSize = (long) blocksPerSegment * blockLength;

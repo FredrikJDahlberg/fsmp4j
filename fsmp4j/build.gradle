@@ -1,8 +1,9 @@
 plugins {
     id 'java-library'
+    id 'maven-publish'
 }
 
-version = '1.0.0'
+version = '1.0.1'
 
 dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
