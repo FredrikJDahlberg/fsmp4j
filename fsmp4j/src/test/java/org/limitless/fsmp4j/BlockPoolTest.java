@@ -210,7 +210,7 @@ public class BlockPoolTest {
         }
         assertEquals(335_544_320L, pool.allocatedBytes());
         assertEquals(10_000_001, block.int32());
-        assertEquals("BlockPool{ size = 32, blocks = 10 485 760, segments = 10, bytes = 335 544 320 }", pool.toString());
+        assertEquals("BlockPool{ size = 32, blocks = 10,485,760, segments = 10, bytes = 335,544,320 }", pool.toString());
         pool.close();
     }
 
@@ -224,7 +224,7 @@ public class BlockPoolTest {
         }
         assertEquals(335_544_320L, pool.allocatedBytes());
         assertEquals(10_000_001, block.int32());
-        assertEquals("BlockPool{ size = 32, blocks = 10 485 760, segments = 10, bytes = 335 544 320 }", pool.toString());
+        assertEquals("BlockPool{ size = 32, blocks = 10,485,760, segments = 10, bytes = 335,544,320 }", pool.toString());
         pool.close();
     }
 

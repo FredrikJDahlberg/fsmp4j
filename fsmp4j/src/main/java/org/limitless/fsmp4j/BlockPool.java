@@ -4,6 +4,7 @@ import java.lang.foreign.*;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * An implementation of the allocator described in the paper:
@@ -216,7 +217,7 @@ public class BlockPool<T extends BlockFlyweight> {
 
     @Override
     public String toString() {
-        return String.format("BlockPool{ size = %d, blocks = %,d, segments = %d, bytes = %,d }",
+        return String.format(Locale.ROOT, "BlockPool{ size = %d, blocks = %,d, segments = %d, bytes = %,d }",
             blockLength, blocksPerSegment * segmentCount, segmentCount, allocatedBytes());
     }
 
