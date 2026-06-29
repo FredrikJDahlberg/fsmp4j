@@ -160,6 +160,10 @@ public class BlockPool<T extends BlockFlyweight> {
             throw new IllegalStateException("block does not belong to this pool");
         }
 
+        if (block.nativeInt(FreeBlock.COOKIE_OFFSET) == FreeBlock.COOKIE) {
+            throw new IllegalStateException("double free");
+        }
+
         final int blockIndex = block.block();
         final long offset = (long) blockIndex * blockLength;
         freeBlock.wrap(segment, offset).set(freeSegmentPosition, freeBlockPosition);
@@ -195,6 +199,7 @@ public class BlockPool<T extends BlockFlyweight> {
 
         final int segmentIndex = ByteUtils.highBits(address) - 1;
         final int blockIndex = ByteUtils.lowBits(address);
+        checkSegmentAndIndex(segmentIndex, blockIndex);
         block.wrap(memorySegments[segmentIndex], segmentIndex, blockIndex);
         return block;
     }

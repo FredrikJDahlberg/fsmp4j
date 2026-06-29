@@ -179,6 +179,9 @@ public abstract class BlockFlyweight implements Flyweight {
      * @return field segment offset
      */
     protected long fieldOffset(final int offset) {
+        if (blockIndex == BlockPool.INVALID_INDEX) {
+            throw new IllegalStateException("flyweight is not wrapped");
+        }
         return (long) blockIndex * encodedLength() + offset;
     }
 
@@ -210,7 +213,7 @@ public abstract class BlockFlyweight implements Flyweight {
         if (bytes == null) {
             throw new IllegalArgumentException("null argument");
         }
-        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), bytes, 0, length);
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), bytes, dstOffset, length);
         return bytes;
     }
 
@@ -260,9 +263,8 @@ public abstract class BlockFlyweight implements Flyweight {
      * @throws IllegalArgumentException too long string
      */
     protected void nativeString(final String value, final int offset, final int length) {
-        if (value.length() >= length)
-        {
-            throw new IllegalArgumentException("string is to long");
+        if (value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= length) {
+            throw new IllegalArgumentException("string is too long");
         }
         segment.setString(fieldOffset(offset), value);
     }

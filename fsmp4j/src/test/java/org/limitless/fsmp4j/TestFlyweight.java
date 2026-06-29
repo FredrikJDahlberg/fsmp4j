@@ -76,6 +76,10 @@ public class TestFlyweight extends BlockFlyweight {
         return value;
     }
 
+    public byte[] bytesAt(int dstOffset, byte[] dest) {
+        return nativeByteArray(ARRAY_OFFSET, ARRAY_LENGTH, dstOffset, dest);
+    }
+
     public TestFlyweight bytes(byte[] value) {
         nativeByteArray(value, ARRAY_OFFSET, value.length);
         return this;
