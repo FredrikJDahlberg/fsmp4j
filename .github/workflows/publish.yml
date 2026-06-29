@@ -20,6 +20,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Build and publish
+        if: "!contains(github.ref, 'SNAPSHOT')"
         run: ./gradlew :fsmp4j:publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
