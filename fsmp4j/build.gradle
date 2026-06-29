@@ -25,4 +25,26 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(23)
     }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            groupId = 'org.limitless'
+            artifactId = 'fsmp4j'
+            from components.java
+        }
+    }
+    repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri('https://maven.pkg.github.com/fredrikjdahlberg/fsmp4j')
+            credentials {
+                username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+                password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
+            }
+        }
+    }
 }
