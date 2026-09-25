@@ -13,14 +13,14 @@ public class Block extends BlockFlyweight {
 
     @Override
     protected StringBuilder append(StringBuilder builder) {
-        return builder.append("{Test, int64=").append(int64()).append("}");
+        return builder.append("{Block, int64=").append(int64()).append("}");
     }
 
     public long int64() {
         return nativeLong(LONG_OFFSET);
     }
 
-    public BlockFlyweight int64(long value) {
+    public Block int64(long value) {
         nativeLong(LONG_OFFSET, value);
         return this;
     }
@@ -36,4 +36,3 @@ public class Block extends BlockFlyweight {
         return super.equals(object);
     }
 }
-

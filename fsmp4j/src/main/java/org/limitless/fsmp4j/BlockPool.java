@@ -2,9 +2,9 @@ package org.limitless.fsmp4j;
 
 import java.lang.foreign.*;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 /**
  * An implementation of the allocator described in the paper:
@@ -12,21 +12,30 @@ import java.util.Locale;
  * @param <T> flyweight type
  *
  * Blocks are allocated in segments and when a segment is full another is allocated.
- *
+ * <pre>{@code
+ * try (Arena arena = Arena.ofConfined()) {
+ *     BlockPool<MyBlock> pool = BlockPool.builder(arena, MyBlock::new).build();
+ *     MyBlock block = pool.allocate();
+ *     pool.free(block);
+ * }
+ * }</pre>
+ * Closing the pool closes its arena, so close either the pool or the arena, not both.
  */
-public class BlockPool<T extends BlockFlyweight> {
+public class BlockPool<T extends BlockFlyweight> implements AutoCloseable {
 
     public static final int INVALID_INDEX = -1;
 
     public static final int SEGMENT_CAPACITY = 64;
 
+    /** Blocks per segment when {@link Builder#blocksPerSegment(int)} is not called */
+    public static final int DEFAULT_BLOCKS_PER_SEGMENT = 1024;
+
     private final int blockLength;
     private final int blocksPerSegment;
 
     private Arena arena;
-    private final Constructor<T> constructor;
+    private final Supplier<T> factory;
     private MemorySegment[] memorySegments;
-    private final T workBlock;
     private final FreeBlock freeBlock;
 
     private int initiatedFreeBlocks;   // number of initiated blocks in the current segment
@@ -40,31 +49,41 @@ public class BlockPool<T extends BlockFlyweight> {
     /**
      * Constructor
      * @param memoryArena      the memory arena
-     * @param constructor      constructor for the flyweight
+     * @param factory          creates new flyweights
      * @param blockLength        the block size (power of 2)
      * @param blocksPerSegment the number of blocks per segment
      * @param preAllocSegments initial number of segments
      */
     private BlockPool(final Arena memoryArena,
-                      final Constructor<T> constructor,
+                      final Supplier<T> factory,
                       final int blockLength,
                       final int blocksPerSegment,
                       final int preAllocSegments) {
         this.arena = memoryArena;
-        this.constructor = constructor;
+        this.factory = factory;
         this.blockLength = blockLength;
         this.blocksPerSegment = blocksPerSegment;
 
         final long segmentSize = (long) this.blocksPerSegment * this.blockLength;
         segmentCount = preAllocSegments;
         segmentPosition = 0;
-        memorySegments = new MemorySegment[SEGMENT_CAPACITY];
+        memorySegments = new MemorySegment[Math.max(SEGMENT_CAPACITY, preAllocSegments)];
         for (int position = 0; position < this.segmentCount; ++position) {
             memorySegments[position] = arena.allocate(segmentSize, Long.BYTES);
         }
         freeBlockCount = this.blocksPerSegment;
         freeBlock = new FreeBlock();
-        workBlock = newInstance();
+    }
+
+    /**
+     * Create a pool builder using a factory for the flyweight, e.g. {@code BlockPool.builder(arena, MyBlock::new)}
+     * @param memoryArena memory arena
+     * @param factory     creates a new flyweight instance on each call
+     * @return builder
+     * @param <N> flyweight type
+     */
+    public static <N extends BlockFlyweight> Builder<N> builder(final Arena memoryArena, final Supplier<N> factory) {
+        return new Builder<>(memoryArena, null, factory);
     }
 
     /**
@@ -76,29 +95,52 @@ public class BlockPool<T extends BlockFlyweight> {
     }
 
     /**
-     * Allocate a new flyweight object and data from the pool
-     * @return the wrapped block or null
-     * @throws IllegalStateException free list corruption
+     * The number of blocks currently allocated (not freed).
+     * @return blocks in use
+     */
+    public long blocksInUse() {
+        return (long) (segmentPosition + 1) * blocksPerSegment - freeBlockCount;
+    }
+
+    /** Largest supported {@link BlockFlyweight#encodedLength()}, so that the aligned block length fits an int */
+    public static final int MAX_ENCODED_LENGTH = Integer.MAX_VALUE & -Long.BYTES;
+
+    /**
+     * The size of a block in the pool: the encoded length padded to hold a free list entry and aligned to 8 bytes.
+     * @param encodedLength flyweight encoded length
+     * @return block length
+     */
+    static int blockLength(final int encodedLength) {
+        return ByteUtils.align(Math.max(FreeBlock.BYTES, encodedLength), Long.BYTES);
+    }
+
+    /**
+     * The size of a block in bytes, including alignment padding.
+     * @return block length
+     */
+    public int blockLength() {
+        return blockLength;
+    }
+
+    /**
+     * Allocate a new flyweight object and data from the pool.
+     * Use {@link #allocate(BlockFlyweight)} with a reused flyweight to avoid creating garbage.
+     * @return the wrapped block
+     * @throws IllegalStateException free list corruption or flyweight instantiation failure
      */
     public T allocate() {
-        try {
-            return allocate(constructor.newInstance());
-        } catch (InstantiationException | IllegalAccessException | InvocationTargetException | IllegalArgumentException error) {
-            return null;
-        }
+        return allocate(factory.get());
     }
 
     /**
      * Allocate a block from the free list (
      * @param block a flyweight
      * @return the wrapped block
-     * @throws IllegalArgumentException null argument
+     * @throws IllegalArgumentException null block or block size differs from the pool's
      * @throws IllegalStateException free list corruption
      */
     public T allocate(final T block) {
-        if (block == null) {
-            throw new IllegalArgumentException("null block");
-        }
+        checkBlock(block);
         if (initiatedFreeBlocks < blocksPerSegment) {
             final long offset = (long) initiatedFreeBlocks * blockLength;
             ++initiatedFreeBlocks;
@@ -106,14 +148,15 @@ public class BlockPool<T extends BlockFlyweight> {
         }
 
         // allocate free block
-        final MemorySegment segment = memorySegments[freeSegmentPosition];
-        block.wrap(segment, freeSegmentPosition, freeBlockPosition);
-        block.nativeInt(FreeBlock.COOKIE_OFFSET, 0);
-
-        final long offset = (long) freeBlockPosition * blockLength;
-        freeBlock.wrap(segment, offset);  // new free block
-        freeBlockPosition = freeBlock.blockIndex();
-        freeSegmentPosition = freeBlock.blockSegment();
+        final int segmentIndex = freeSegmentPosition;
+        final int blockIndex = freeBlockPosition;
+        final MemorySegment segment = memorySegments[segmentIndex];
+        final long offset = (long) blockIndex * blockLength;
+        final long next = freeBlock.wrap(segment, offset).next();  // new free block
+        freeBlock.clear();
+        freeBlockPosition = ByteUtils.lowBits(next);
+        freeSegmentPosition = ByteUtils.highBits(next);
+        block.wrap(segment, segmentIndex, blockIndex, offset);
         if (--freeBlockCount == 0) {
             allocateSegment();
         }
@@ -130,59 +173,55 @@ public class BlockPool<T extends BlockFlyweight> {
             throw new IllegalArgumentException("invalid address");
         }
 
-        get(address, workBlock);
-        if (workBlock.memorySegment() == null) {
-            throw new IllegalStateException("null free segment");
-        }
-        freeBlock(workBlock.memorySegment(), workBlock);
+        final int segmentIndex = ByteUtils.highBits(address) - 1;
+        final int blockIndex = ByteUtils.lowBits(address);
+        checkSegmentAndIndex(segmentIndex, blockIndex);
+        freeBlock(memorySegments[segmentIndex], segmentIndex, blockIndex);
     }
 
     /**
      * Free the block
      * @param block a wrapped object
-     * @throws IllegalArgumentException invalid block
+     * @throws IllegalArgumentException null block or block size differs from the pool's
      * @throws IllegalStateException block has invalid memory address
      */
     public void free(final T block) {
-        if (block == null) {
-            throw new IllegalArgumentException("null block");
-        }
+        checkBlock(block);
 
         final MemorySegment segment = block.memorySegment();
         if (segment == null) {
             throw new IllegalStateException("null memory segment");
         }
-        freeBlock(segment, block);
-    }
-
-    private void freeBlock(final MemorySegment segment, final T block) {
         final int segmentIndex = block.segment();
+        final int blockIndex = block.block();
+        checkSegmentAndIndex(segmentIndex, blockIndex);
         if (segment != memorySegments[segmentIndex]) {
             throw new IllegalStateException("block does not belong to this pool");
         }
-
-        if (block.nativeInt(FreeBlock.COOKIE_OFFSET) == FreeBlock.COOKIE) {
-            throw new IllegalStateException("double free");
-        }
-
-        final int blockIndex = block.block();
-        final long offset = (long) blockIndex * blockLength;
-        freeBlock.wrap(segment, offset).set(freeSegmentPosition, freeBlockPosition);
-        freeSegmentPosition = segmentIndex;
-        freeBlockPosition = blockIndex;
-        ++freeBlockCount;
+        freeBlock(segment, segmentIndex, blockIndex);
         block.clear();
     }
 
+    private void freeBlock(final MemorySegment segment, final int segmentIndex, final int blockIndex) {
+        final long offset = (long) blockIndex * blockLength;
+        if (isFreeListEntry(freeBlock.wrap(segment, offset).next())) {
+            throw new IllegalStateException("double free");
+        }
+        freeBlock.set(freeSegmentPosition, freeBlockPosition);
+        freeSegmentPosition = segmentIndex;
+        freeBlockPosition = blockIndex;
+        ++freeBlockCount;
+    }
+
     /**
-     * Allocate a flyweight object.
+     * Wrap the block at address in a new flyweight object.
+     * Use {@link #get(long, BlockFlyweight)} with a reused flyweight to avoid creating garbage.
      * @param address the segment and index for the object
      * @return a wrapped flyweight
-     * @throws IllegalArgumentException invalid address
      * @throws IllegalStateException invalid indices
      */
     public T get(final long address) {
-        return get(address, allocate());
+        return get(address, factory.get());
     }
 
     /**
@@ -190,27 +229,30 @@ public class BlockPool<T extends BlockFlyweight> {
      * @param address the segment and index for the block
      * @param block the wrapped block
      * @return the wrapped block
-     * @throws IllegalArgumentException invalid address or block
+     * @throws IllegalArgumentException null block or block size differs from the pool's
      * @throws IllegalStateException invalid indices
      */
     public T get(final long address, final T block) {
-        if (block == null) {
-            throw new IllegalArgumentException("null block");
-        }
+        checkBlock(block);
 
         final int segmentIndex = ByteUtils.highBits(address) - 1;
         final int blockIndex = ByteUtils.lowBits(address);
         checkSegmentAndIndex(segmentIndex, blockIndex);
-        block.wrap(memorySegments[segmentIndex], segmentIndex, blockIndex);
+        block.wrap(memorySegments[segmentIndex], segmentIndex, blockIndex, (long) blockIndex * blockLength);
         return block;
     }
 
     /**
-     * Close the associated memory arena
+     * Close the associated memory arena. Global and automatic arenas cannot be closed and are left open.
      */
+    @Override
     public void close() {
         if (arena != null) {
-            arena.close();
+            try {
+                arena.close();
+            } catch (UnsupportedOperationException error) {
+                // global and automatic arenas are released by the JVM
+            }
             arena = null;
         }
     }
@@ -238,6 +280,32 @@ public class BlockPool<T extends BlockFlyweight> {
         freeBlockPosition = 0;
         freeSegmentPosition = segmentPosition;
         freeBlockCount += blocksPerSegment;
+    }
+
+    /**
+     * Check that the flyweight lays out blocks with the same stride as the pool
+     * @param block flyweight
+     * @throws IllegalArgumentException null block or block size differs from the pool's
+     */
+    private void checkBlock(final T block) {
+        if (block == null) {
+            throw new IllegalArgumentException("null block");
+        }
+        if (blockLength(block.encodedLength()) != blockLength) {
+            throw new IllegalArgumentException("block size " + block.encodedLength() +
+                " does not fit the pool's block length " + blockLength);
+        }
+    }
+
+    /**
+     * Whether a decoded free list entry points at a block in this pool, i.e. the block holding it is free
+     * @param next decoded entry
+     * @return true if valid
+     */
+    private boolean isFreeListEntry(final long next) {
+        final int segmentIndex = ByteUtils.highBits(next);
+        final int blockIndex = ByteUtils.lowBits(next);
+        return segmentIndex >= 0 && segmentIndex < segmentCount && blockIndex >= 0 && blockIndex <= blocksPerSegment;
     }
 
     /**
@@ -269,6 +337,7 @@ public class BlockPool<T extends BlockFlyweight> {
     public static final class Builder<N extends BlockFlyweight> {
         private final Arena memoryArena;
         private final Class<N> clazz;
+        private final Supplier<N> factory;
         private int preAllocSegments;
         private int blocksPerSegment;
 
@@ -276,18 +345,35 @@ public class BlockPool<T extends BlockFlyweight> {
          * Native block pool builder
          * @param memoryArena   memory arena
          * @param clazz         native class
+         * @see BlockPool#builder(Arena, Supplier)
          */
         public Builder(final Arena memoryArena, final Class<N> clazz) {
-            this.memoryArena = memoryArena;
-            this.clazz = clazz;
-            preAllocSegments = 1;
+            this(memoryArena, clazz, null);
         }
 
+        private Builder(final Arena memoryArena, final Class<N> clazz, final Supplier<N> factory) {
+            this.memoryArena = memoryArena;
+            this.clazz = clazz;
+            this.factory = factory;
+            preAllocSegments = 1;
+            blocksPerSegment = DEFAULT_BLOCKS_PER_SEGMENT;
+        }
+
+        /**
+         * Number of blocks in each segment, defaults to {@value #DEFAULT_BLOCKS_PER_SEGMENT}
+         * @param blocks blocks per segment
+         * @return builder
+         */
         public Builder<N> blocksPerSegment(final int blocks) {
             this.blocksPerSegment = blocks;
             return this;
         }
 
+        /**
+         * Number of segments allocated up front, defaults to 1
+         * @param segments pre-allocated segments
+         * @return builder
+         */
         public Builder<N> allocatedSegments(final int segments) {
             this.preAllocSegments = segments;
             return this;
@@ -295,58 +381,79 @@ public class BlockPool<T extends BlockFlyweight> {
 
         /**
          * Builds a memory pool
-         * @return Constructed NativeBlockPool of type N
-         * @throws IllegalArgumentException null memory session or flyweight class
-         * @throws IllegalStateException failed memory allocation
+         * @return Constructed BlockPool of type N
+         * @throws IllegalArgumentException invalid arguments or flyweight cannot be instantiated
+         * @throws IllegalStateException the arena is closed
+         * @throws OutOfMemoryError failed memory allocation
          */
         public BlockPool<N> build()  {
-            if (memoryArena == null || clazz == null) {
-                throw new IllegalArgumentException("null memory session or flyweight class");
+            if (memoryArena == null) {
+                throw new IllegalArgumentException("null memory arena");
+            }
+            if (clazz == null && factory == null) {
+                throw new IllegalArgumentException("null flyweight class or factory");
+            }
+            if (blocksPerSegment <= 0) {
+                throw new IllegalArgumentException("blocks per segment must be positive: " + blocksPerSegment);
+            }
+            if (preAllocSegments <= 0) {
+                throw new IllegalArgumentException("allocated segments must be positive: " + preAllocSegments);
             }
 
-            final Constructor<N> constructor;
-            int blockLength;
+            final Supplier<N> newBlock = factory != null ? factory : reflectiveFactory(clazz);
+            final N prototype;
+            final N other;
             try {
-                constructor = clazz.getDeclaredConstructor();
-                blockLength = constructor.newInstance().encodedLength();
-            } catch (ReflectiveOperationException | RuntimeException error) {
-                throw new IllegalArgumentException("flyweight instantiation");
+                prototype = newBlock.get();
+                other = newBlock.get();
+            } catch (RuntimeException error) {
+                throw new IllegalArgumentException("flyweight instantiation failed", error);
+            }
+            if (prototype == null || other == null) {
+                throw new IllegalArgumentException("flyweight factory returned null");
+            }
+            if (prototype == other) {
+                throw new IllegalArgumentException("flyweight factory must return a new instance on each call");
+            }
+            final int encodedLength = prototype.encodedLength();
+            if (encodedLength <= 0) {
+                throw new IllegalArgumentException("encodedLength must be positive: " + encodedLength);
+            }
+            if (encodedLength > MAX_ENCODED_LENGTH) {
+                throw new IllegalArgumentException("encodedLength is too large: " + encodedLength);
             }
 
-            blockLength = ByteUtils.align(Math.max(FreeBlock.BYTES, blockLength), Long.BYTES);
-            if (this.blocksPerSegment <= 0) {
-                throw new IllegalArgumentException("invalid allocated segments or blocks");
-            }
-
-            final var pool = new BlockPool<>(memoryArena, constructor, blockLength, blocksPerSegment, preAllocSegments);
-            if (pool.memorySegments[0] == null) {
-                throw new IllegalStateException("segment allocation failed");
-            }
-            return pool;
+            final int blockLength = blockLength(encodedLength);
+            return new BlockPool<>(memoryArena, newBlock, blockLength, blocksPerSegment, preAllocSegments);
         }
     }
 
-    private T newInstance() {
-        T newBlock;
+    private static <N> Supplier<N> reflectiveFactory(final Class<N> clazz) {
+        final Constructor<N> constructor;
         try {
-            newBlock = constructor.newInstance();
-        } catch (ReflectiveOperationException | IllegalArgumentException error) {
-            newBlock = null;
+            constructor = clazz.getDeclaredConstructor();
+        } catch (NoSuchMethodException error) {
+            throw new IllegalArgumentException(clazz.getName() + " needs a no-argument constructor", error);
         }
-        return newBlock;
+        return () -> {
+            try {
+                return constructor.newInstance();
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException("cannot instantiate " + clazz.getName(), error);
+            }
+        };
     }
 
-    // handling of object less than 8
+    // Free list entry stored in the first 8 bytes of a free block. Reading it once tells both where the next
+    // free block is and whether the block is free, which keeps free and allocate to one read and one write.
     private static final class FreeBlock {
-        public static final int INDEX_OFFSET = 0;
-        public static final int INDEX_LENGTH = Integer.BYTES;
-        public static final int SEGMENT_OFFSET = INDEX_OFFSET + INDEX_LENGTH;
-        public static final int SEGMENT_LENGTH = Integer.BYTES;
-        public static final int COOKIE_OFFSET = SEGMENT_OFFSET + SEGMENT_LENGTH;
-        public static final int COOKIE_LENGTH = Integer.BYTES;
-        public static final int BYTES = COOKIE_OFFSET + COOKIE_LENGTH;
+        // next free block, segment in the high bits and block in the low, xor MAGIC so that
+        // user data is unlikely to decode as a valid free list entry
+        public static final int NEXT_OFFSET = 0;
+        public static final int BYTES = Long.BYTES;
 
-        public static final int COOKIE = 0xdeadbeef;
+        // random, so that well-known constants stored in a block do not decode as a free list entry
+        private static final long MAGIC = 0xf49bafd7105a8d35L;
 
         private MemorySegment memorySegment;
         private long offset;
@@ -361,17 +468,15 @@ public class BlockPool<T extends BlockFlyweight> {
         }
 
         public void set(final int segment, final int  block) {
-            memorySegment.set(ValueLayout.JAVA_INT, offset + SEGMENT_OFFSET, segment);
-            memorySegment.set(ValueLayout.JAVA_INT, offset + INDEX_OFFSET, block);
-            memorySegment.set(ValueLayout.JAVA_INT, offset + COOKIE_OFFSET, COOKIE);
+            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset + NEXT_OFFSET, ByteUtils.pack(segment, block) ^ MAGIC);
         }
 
-        public int blockSegment() {
-            return memorySegment.get(ValueLayout.JAVA_INT, offset + SEGMENT_OFFSET);
+        public long next() {
+            return memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + NEXT_OFFSET) ^ MAGIC;
         }
 
-        public int blockIndex() {
-            return memorySegment.get(ValueLayout.JAVA_INT, offset + INDEX_OFFSET);
+        public void clear() {
+            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset + NEXT_OFFSET, 0L);
         }
     }
 }

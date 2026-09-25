@@ -5,11 +5,24 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
+/**
+ * Base class for pooled blocks. Subclasses define a layout by implementing {@link #encodedLength()} and
+ * exposing typed accessors built on the protected {@code native*()} methods. Fields may be packed at any
+ * offset; no alignment is required.
+ */
 public abstract class BlockFlyweight implements Flyweight {
+
+    private static final ValueLayout.OfChar CHAR = ValueLayout.JAVA_CHAR_UNALIGNED;
+    private static final ValueLayout.OfShort SHORT = ValueLayout.JAVA_SHORT_UNALIGNED;
+    private static final ValueLayout.OfInt INT = ValueLayout.JAVA_INT_UNALIGNED;
+    private static final ValueLayout.OfLong LONG = ValueLayout.JAVA_LONG_UNALIGNED;
+    private static final ValueLayout.OfFloat FLOAT = ValueLayout.JAVA_FLOAT_UNALIGNED;
+    private static final ValueLayout.OfDouble DOUBLE = ValueLayout.JAVA_DOUBLE_UNALIGNED;
 
     private MemorySegment segment;
     private int blockIndex;
     private int segmentIndex;
+    private long blockOffset;   // byte offset of the block in the segment
 
     public BlockFlyweight() {
         blockIndex = BlockPool.INVALID_INDEX;
@@ -27,6 +40,21 @@ public abstract class BlockFlyweight implements Flyweight {
         this.segment = segment;
         this.blockIndex = blockIndex;
         this.segmentIndex = segmentIndex;
+        this.blockOffset = (long) blockIndex * BlockPool.blockLength(encodedLength());
+    }
+
+    /**
+     * Initiate the flyweight with the block offset already computed by the pool
+     * @param segment memory segment
+     * @param segmentIndex index of segment
+     * @param blockIndex index of block
+     * @param blockOffset byte offset of the block in the segment
+     */
+    void wrap(final MemorySegment segment, final int segmentIndex, final int blockIndex, final long blockOffset) {
+        this.segment = segment;
+        this.blockIndex = blockIndex;
+        this.segmentIndex = segmentIndex;
+        this.blockOffset = blockOffset;
     }
 
     /**
@@ -66,6 +94,14 @@ public abstract class BlockFlyweight implements Flyweight {
     }
 
     /**
+     * Whether the flyweight currently points at a block. It is unwrapped when new and after being freed.
+     * @return true if wrapped
+     */
+    public boolean isWrapped() {
+        return blockIndex != BlockPool.INVALID_INDEX;
+    }
+
+    /**
      * Block hashCode
      * @return hash code
      */
@@ -89,7 +125,7 @@ public abstract class BlockFlyweight implements Flyweight {
         }
 
         final BlockFlyweight that = (BlockFlyweight) object;
-        return blockIndex == that.blockIndex && segmentIndex == that.segmentIndex && segment.equals(that.segment);
+        return blockIndex == that.blockIndex && segmentIndex == that.segmentIndex && Objects.equals(segment, that.segment);
     }
 
     /**
@@ -99,6 +135,7 @@ public abstract class BlockFlyweight implements Flyweight {
         segment = null;
         segmentIndex = BlockPool.INVALID_INDEX;
         blockIndex = BlockPool.INVALID_INDEX;
+        blockOffset = 0;
     }
 
     /**
@@ -124,17 +161,17 @@ public abstract class BlockFlyweight implements Flyweight {
      * @param offset in flyweight
      * @param value short
      */
-    public void nativeShort(final int offset, final short value) {
-        segment.set(ValueLayout.JAVA_SHORT, fieldOffset(offset), value);
+    protected void nativeShort(final int offset, final short value) {
+        segment.set(SHORT, fieldOffset(offset), value);
     }
 
     /**
-     * Get byte value
+     * Get short value
      * @param offset in flyweight
      * @return value
      */
     protected short nativeShort(final int offset) {
-        return segment.get(ValueLayout.JAVA_SHORT, fieldOffset(offset));
+        return segment.get(SHORT, fieldOffset(offset));
     }
 
     /**
@@ -143,7 +180,7 @@ public abstract class BlockFlyweight implements Flyweight {
      * @param value integer
      */
     protected void nativeInt(final int offset, final int value) {
-        segment.set(ValueLayout.JAVA_INT, fieldOffset(offset), value);
+        segment.set(INT, fieldOffset(offset), value);
     }
 
     /**
@@ -152,7 +189,7 @@ public abstract class BlockFlyweight implements Flyweight {
      * @return value
      */
     protected int nativeInt(final int offset) {
-        return segment.get(ValueLayout.JAVA_INT, fieldOffset(offset));
+        return segment.get(INT, fieldOffset(offset));
     }
 
     /**
@@ -161,7 +198,7 @@ public abstract class BlockFlyweight implements Flyweight {
      * @param value long
      */
     protected void nativeLong(final int offset, final long value) {
-        segment.set(ValueLayout.JAVA_LONG, fieldOffset(offset), value);
+        segment.set(LONG, fieldOffset(offset), value);
     }
 
     /**
@@ -170,7 +207,79 @@ public abstract class BlockFlyweight implements Flyweight {
      * @return value
      */
     protected long nativeLong(final int offset) {
-        return segment.get(ValueLayout.JAVA_LONG, fieldOffset(offset));
+        return segment.get(LONG, fieldOffset(offset));
+    }
+
+    /**
+     * Set char value
+     * @param offset in flyweight
+     * @param value char
+     */
+    protected void nativeChar(final int offset, final char value) {
+        segment.set(CHAR, fieldOffset(offset), value);
+    }
+
+    /**
+     * Get char value
+     * @param offset in flyweight
+     * @return value
+     */
+    protected char nativeChar(final int offset) {
+        return segment.get(CHAR, fieldOffset(offset));
+    }
+
+    /**
+     * Set boolean value, stored as a single byte
+     * @param offset in flyweight
+     * @param value boolean
+     */
+    protected void nativeBoolean(final int offset, final boolean value) {
+        segment.set(ValueLayout.JAVA_BYTE, fieldOffset(offset), value ? (byte) 1 : (byte) 0);
+    }
+
+    /**
+     * Get boolean value, stored as a single byte
+     * @param offset in flyweight
+     * @return value
+     */
+    protected boolean nativeBoolean(final int offset) {
+        return segment.get(ValueLayout.JAVA_BYTE, fieldOffset(offset)) != 0;
+    }
+
+    /**
+     * Set float value
+     * @param offset in flyweight
+     * @param value float
+     */
+    protected void nativeFloat(final int offset, final float value) {
+        segment.set(FLOAT, fieldOffset(offset), value);
+    }
+
+    /**
+     * Get float value
+     * @param offset in flyweight
+     * @return value
+     */
+    protected float nativeFloat(final int offset) {
+        return segment.get(FLOAT, fieldOffset(offset));
+    }
+
+    /**
+     * Set double value
+     * @param offset in flyweight
+     * @param value double
+     */
+    protected void nativeDouble(final int offset, final double value) {
+        segment.set(DOUBLE, fieldOffset(offset), value);
+    }
+
+    /**
+     * Get double value
+     * @param offset in flyweight
+     * @return value
+     */
+    protected double nativeDouble(final int offset) {
+        return segment.get(DOUBLE, fieldOffset(offset));
     }
 
     /**
@@ -182,7 +291,19 @@ public abstract class BlockFlyweight implements Flyweight {
         if (blockIndex == BlockPool.INVALID_INDEX) {
             throw new IllegalStateException("flyweight is not wrapped");
         }
-        return (long) blockIndex * encodedLength() + offset;
+        return blockOffset + offset;
+    }
+
+    /**
+     * Calculate offset of a field, checking that it lies within the block
+     * @param offset in flyweight
+     * @param length of the field
+     * @return field segment offset
+     * @throws IndexOutOfBoundsException the field is outside the block
+     */
+    protected long fieldOffset(final int offset, final int length) {
+        Objects.checkFromIndexSize(offset, length, encodedLength());
+        return fieldOffset(offset);
     }
 
     /**
@@ -197,7 +318,7 @@ public abstract class BlockFlyweight implements Flyweight {
         if (bytes == null) {
             throw new IllegalArgumentException("null argument");
         }
-        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), bytes, 0, length);
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset, length), bytes, 0, length);
         return bytes;
     }
 
@@ -213,7 +334,7 @@ public abstract class BlockFlyweight implements Flyweight {
         if (bytes == null) {
             throw new IllegalArgumentException("null argument");
         }
-        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), bytes, dstOffset, length);
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, fieldOffset(offset, length), bytes, dstOffset, length);
         return bytes;
     }
 
@@ -228,7 +349,7 @@ public abstract class BlockFlyweight implements Flyweight {
         if (bytes == null) {
             throw new IllegalArgumentException("null argument");
         }
-        MemorySegment.copy(bytes, 0, segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), length);
+        MemorySegment.copy(bytes, 0, segment, ValueLayout.JAVA_BYTE, fieldOffset(offset, length), length);
     }
 
     /**
@@ -243,16 +364,18 @@ public abstract class BlockFlyweight implements Flyweight {
         if (bytes == null) {
             throw new IllegalArgumentException("null argument");
         }
-        MemorySegment.copy(bytes, position, segment, ValueLayout.JAVA_BYTE, fieldOffset(offset), length);
+        MemorySegment.copy(bytes, position, segment, ValueLayout.JAVA_BYTE, fieldOffset(offset, length), length);
     }
 
     /**
      * Get string value
      * @param offset flyweight offset
      * @return string value
+     * @throws IndexOutOfBoundsException the string is not terminated within the block
      */
     protected String nativeString(final int offset) {
-        return segment.getString(fieldOffset(offset));
+        final int length = encodedLength() - offset;
+        return segment.asSlice(fieldOffset(offset, length), length).getString(0);
     }
 
     /**
@@ -261,12 +384,14 @@ public abstract class BlockFlyweight implements Flyweight {
      * @param offset flyweight offset
      * @param length maximal length
      * @throws IllegalArgumentException too long string
+     * @throws IndexOutOfBoundsException the field is outside the block
      */
     protected void nativeString(final String value, final int offset, final int length) {
+        final long position = fieldOffset(offset, length);
         if (value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= length) {
             throw new IllegalArgumentException("string is too long");
         }
-        segment.setString(fieldOffset(offset), value);
+        segment.setString(position, value);
     }
 
     /**
@@ -277,7 +402,7 @@ public abstract class BlockFlyweight implements Flyweight {
      * @return string builder
      */
     protected StringBuilder append(final int offset, final int length, final StringBuilder builder) {
-        final long position = fieldOffset(offset);
+        final long position = fieldOffset(offset, length);
         for (int index = 0; index < length; ++index) {
             char value = (char) segment.get(ValueLayout.JAVA_BYTE, index + position);
             builder.append(value);
@@ -299,9 +424,24 @@ public abstract class BlockFlyweight implements Flyweight {
     }
 
     /**
-     * Flyweight string builder helper
+     * Flyweight string builder helper, used by {@link #toString()}. Override to include the block's fields.
      * @param builder string builder
      * @return builder
      */
-    protected abstract StringBuilder append(final StringBuilder builder);
+    protected StringBuilder append(final StringBuilder builder) {
+        return builder.append(getClass().getSimpleName())
+            .append("{segment=").append(segmentIndex)
+            .append(", block=").append(blockIndex).append('}');
+    }
+
+    @Override
+    public String toString() {
+        if (!isWrapped()) {
+            return getClass().getSimpleName() + "{unwrapped}";
+        }
+        if (!segment.scope().isAlive()) {
+            return getClass().getSimpleName() + "{closed}";
+        }
+        return append(new StringBuilder(64)).toString();
+    }
 }

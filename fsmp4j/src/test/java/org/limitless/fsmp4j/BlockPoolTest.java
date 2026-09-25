@@ -4,6 +4,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.HashMap;
+import java.util.HashSet;
 
 import org.junit.jupiter.api.Test;
 
@@ -108,7 +109,7 @@ public class BlockPoolTest {
         assertNull(block4.memorySegment());
         pool.allocate(block4);
         assertEquals(0, block4.segment());
-        assertEquals(2, block4.block());
+        assertEquals(1, block4.block()); // get() must not consume a block
 
         assertThrows(IllegalArgumentException.class, () -> pool.get(0, null));
 
@@ -274,6 +275,223 @@ public class BlockPoolTest {
             assertNotNull(address);
             pool.get(address, found);
             assertEquals(i, found.int64());
+        }
+    }
+
+    @Test
+    public void builderWithFactory() {
+        try (var pool = BlockPool.builder(Arena.ofConfined(), TestFlyweight::new).build()) {
+            final var block = pool.allocate().int64(42);
+            assertEquals(42, pool.get(block.address()).int64());
+            assertEquals(32, pool.blockLength());
+            assertEquals(BlockPool.DEFAULT_BLOCKS_PER_SEGMENT * 32L, pool.allocatedBytes());
+        }
+    }
+
+    @Test
+    public void getDoesNotAllocate() {
+        try (var pool = new BlockPool.Builder<>(Arena.ofConfined(), TestFlyweight.class).blocksPerSegment(4).build()) {
+            final var block = pool.allocate();
+            assertEquals(1, pool.blocksInUse());
+            pool.get(block.address());
+            assertEquals(1, pool.blocksInUse());
+
+            for (int i = 0; i < 9; ++i) {
+                pool.allocate();
+            }
+            assertEquals(10, pool.blocksInUse());
+            pool.free(block);
+            assertEquals(9, pool.blocksInUse());
+        }
+    }
+
+    @Test
+    public void manyPreAllocatedSegments() {
+        try (var pool = BlockPool.builder(Arena.ofConfined(), TestFlyweight::new)
+                .blocksPerSegment(1).allocatedSegments(100).build()) {
+            for (int i = 0; i < 200; ++i) {
+                pool.allocate();
+            }
+            assertEquals(200, pool.blocksInUse());
+        }
+    }
+
+    @Test
+    public void invalidBuilderArguments() {
+        try (Arena arena = Arena.ofConfined()) {
+            assertThrows(IllegalArgumentException.class,
+                () -> BlockPool.builder(arena, TestFlyweight::new).blocksPerSegment(0).build());
+            assertThrows(IllegalArgumentException.class,
+                () -> BlockPool.builder(arena, TestFlyweight::new).allocatedSegments(0).build());
+            assertThrows(IllegalArgumentException.class,
+                () -> BlockPool.builder(arena, () -> (TestFlyweight) null).build());
+            assertThrows(IllegalArgumentException.class,
+                () -> new BlockPool.Builder<>(arena, NoDefaultConstructor.class).build());
+
+            final var shared = new TestFlyweight();
+            assertThrows(IllegalArgumentException.class, () -> BlockPool.builder(arena, () -> shared).build());
+        }
+    }
+
+    public static class NoDefaultConstructor extends BlockFlyweight {
+        public NoDefaultConstructor(int ignored) {
+        }
+
+        @Override
+        public int encodedLength() {
+            return Long.BYTES;
+        }
+    }
+
+    // 20 bytes, padded to 24 by the pool
+    public static class OddSizeFlyweight extends BlockFlyweight {
+        private static final int ID_OFFSET = 0;
+        private static final int VALUE_OFFSET = ID_OFFSET + Long.BYTES + Long.BYTES;
+        private static final int BYTES = VALUE_OFFSET + Integer.BYTES;
+
+        @Override
+        public int encodedLength() {
+            return BYTES;
+        }
+
+        public long id() {
+            return nativeLong(ID_OFFSET);
+        }
+
+        public int value() {
+            return nativeInt(VALUE_OFFSET);
+        }
+
+        public OddSizeFlyweight set(long id, int value) {
+            nativeLong(ID_OFFSET, id);
+            nativeInt(VALUE_OFFSET, value);
+            return this;
+        }
+    }
+
+    @Test
+    public void unpaddedBlockSize() {
+        try (var pool = BlockPool.builder(Arena.ofConfined(), OddSizeFlyweight::new).blocksPerSegment(16).build()) {
+            assertEquals(24, pool.blockLength());
+            final long[] addresses = new long[100];
+            final var unique = new HashSet<Long>();
+            for (int i = 0; i < addresses.length; ++i) {
+                addresses[i] = pool.allocate().set(i, -i).address();
+                assertTrue(unique.add(addresses[i]), "block handed out twice");
+            }
+            final var block = new OddSizeFlyweight();
+            for (int i = 0; i < addresses.length; ++i) {
+                pool.get(addresses[i], block);
+                assertEquals(i, block.id());
+                assertEquals(-i, block.value());
+            }
+
+            pool.free(addresses[1]);
+            assertThrows(IllegalStateException.class, () -> pool.free(addresses[1]));
+        }
+    }
+
+    @Test
+    public void closeUncloseableArena() {
+        assertDoesNotThrow(() -> {
+            try (var pool = BlockPool.builder(Arena.global(), TestFlyweight::new).blocksPerSegment(1).build()) {
+                pool.allocate();
+            }
+            try (var pool = BlockPool.builder(Arena.ofAuto(), TestFlyweight::new).blocksPerSegment(1).build()) {
+                pool.allocate();
+            }
+        });
+    }
+
+    // same type as the pool, but a larger block
+    public static class LargerFlyweight extends TestFlyweight {
+        @Override
+        public int encodedLength() {
+            return 64;
+        }
+    }
+
+    @Test
+    public void rejectMismatchedBlockSize() {
+        try (Arena arena = Arena.ofConfined()) {
+            final var pool = BlockPool.builder(arena, TestFlyweight::new).blocksPerSegment(16).build();
+            final var block = pool.allocate().int64(1);
+            final var larger = new LargerFlyweight();
+            assertThrows(IllegalArgumentException.class, () -> pool.allocate(larger));
+            assertThrows(IllegalArgumentException.class, () -> pool.get(block.address(), larger));
+
+            larger.wrap(block.memorySegment(), block.segment(), block.block());
+            assertThrows(IllegalArgumentException.class, () -> pool.free(larger));
+            assertEquals(1, pool.blocksInUse());
+            assertEquals(1, block.int64());
+        }
+    }
+
+    public static class HugeFlyweight extends BlockFlyweight {
+        @Override
+        public int encodedLength() {
+            return Integer.MAX_VALUE;
+        }
+    }
+
+    @Test
+    public void rejectHugeBlockSize() {
+        try (Arena arena = Arena.ofConfined()) {
+            final var error = assertThrows(IllegalArgumentException.class,
+                () -> BlockPool.builder(arena, HugeFlyweight::new).blocksPerSegment(1).build());
+            assertTrue(error.getMessage().startsWith("encodedLength is too large"), error.getMessage());
+        }
+    }
+
+    public static class IntFlyweight extends BlockFlyweight {
+        @Override
+        public int encodedLength() {
+            return Integer.BYTES;
+        }
+
+        public int value() {
+            return nativeInt(0);
+        }
+
+        public IntFlyweight value(int value) {
+            nativeInt(0, value);
+            return this;
+        }
+    }
+
+    @Test
+    public void smallBlocks() {
+        try (Arena arena = Arena.ofConfined()) {
+            final var pool = BlockPool.builder(arena, IntFlyweight::new).blocksPerSegment(16).build();
+            assertEquals(Long.BYTES, pool.blockLength());
+            final long[] addresses = new long[100];
+            for (int i = 0; i < addresses.length; ++i) {
+                addresses[i] = pool.allocate().value(i).address();
+            }
+            final var block = new IntFlyweight();
+            for (int i = 0; i < addresses.length; ++i) {
+                assertEquals(i, pool.get(addresses[i], block).value());
+            }
+            for (int i = 0; i < addresses.length; i += 2) {
+                pool.free(addresses[i]);
+            }
+            assertEquals(50, pool.blocksInUse());
+            assertThrows(IllegalStateException.class, () -> pool.free(addresses[0]));
+        }
+    }
+
+    @Test
+    public void userDataIsNotMistakenForFreeBlock() {
+        try (Arena arena = Arena.ofConfined()) {
+            final var pool = BlockPool.builder(arena, TestFlyweight::new).blocksPerSegment(16).build();
+            // the old free list cookie, and bit patterns close to the free list encoding
+            final var block1 = pool.allocate().int64(0).int32(0xdeadbeef);
+            final var block2 = pool.allocate().int64(-1L).int32(0xdeadbeef);
+            final var block3 = pool.allocate().int64(0xdeadbeefcafebabeL);
+            assertDoesNotThrow(() -> pool.free(block1));
+            assertDoesNotThrow(() -> pool.free(block2));
+            assertDoesNotThrow(() -> pool.free(block3));
+            assertEquals(0, pool.blocksInUse());
         }
     }
 }
