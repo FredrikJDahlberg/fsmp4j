@@ -1,6 +1,11 @@
 Fast Efficient Fixed-Size Memory Pool For Java
 ==============================================
 
+[![CI](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/ci.yml/badge.svg)](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/ci.yml)
+[![Publish](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/publish.yml/badge.svg)](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/publish.yml)
+[![Java](https://img.shields.io/badge/Java-23-blue)](https://openjdk.org/projects/jdk/23/)
+[![License](https://img.shields.io/github/license/FredrikJDahlberg/fsmp4j)](LICENSE)
+
 fsmp4j implements a fast and efficient fixed-size memory pool using the Foreign Function and Memory API as described in the paper [Fast Efficient Fixed-Size Memory Pool](https://arxiv.org/pdf/2210.16471).
 
 Usage
@@ -122,11 +127,10 @@ Results are printed and saved to `fsmp4j-benchmarks/build/results/jmh/results.js
 * `PoolGrowthBenchmark` measures the cost per block of filling an empty pool with one million blocks, including
   allocating new segments, next to allocating one million heap objects.
 
-License (See LICENSE file for full license)
--------------------------------------------
+License
+-------
 
-Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text, and
+<https://www.apache.org/licenses/LICENSE-2.0> for the canonical copy. Copyright is recorded in
+[NOTICE](NOTICE); §4d obliges anyone redistributing fsmp4j to carry that file forward. Both files
+ship inside the jar under `META-INF/`.
