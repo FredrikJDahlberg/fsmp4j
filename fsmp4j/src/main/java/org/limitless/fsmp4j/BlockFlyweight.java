@@ -37,7 +37,9 @@ public abstract class BlockFlyweight implements Flyweight {
      */
     @Override
     public void wrap(final MemorySegment segment, final int segmentIndex, final int blockIndex) {
-        this.segment = segment;
+        if (this.segment != segment) {
+            this.segment = segment;
+        }
         this.blockIndex = blockIndex;
         this.segmentIndex = segmentIndex;
         this.blockOffset = (long) blockIndex * BlockPool.blockLength(encodedLength());
@@ -51,7 +53,10 @@ public abstract class BlockFlyweight implements Flyweight {
      * @param blockOffset byte offset of the block in the segment
      */
     void wrap(final MemorySegment segment, final int segmentIndex, final int blockIndex, final long blockOffset) {
-        this.segment = segment;
+        // skip the reference store, and its GC write barrier, when the block is in the same segment
+        if (this.segment != segment) {
+            this.segment = segment;
+        }
         this.blockIndex = blockIndex;
         this.segmentIndex = segmentIndex;
         this.blockOffset = blockOffset;
