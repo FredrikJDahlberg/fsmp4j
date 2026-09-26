@@ -2,7 +2,7 @@ Fast Efficient Fixed-Size Memory Pool For Java
 ==============================================
 
 [![CI](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/ci.yml/badge.svg)](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/ci.yml)
-[![Publish](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/publish.yml/badge.svg)](https://github.com/FredrikJDahlberg/fsmp4j/actions/workflows/publish.yml)
+[![JitPack](https://jitpack.io/v/FredrikJDahlberg/fsmp4j.svg)](https://jitpack.io/#FredrikJDahlberg/fsmp4j)
 [![Java](https://img.shields.io/badge/Java-23-blue)](https://openjdk.org/projects/jdk/23/)
 [![License](https://img.shields.io/github/license/FredrikJDahlberg/fsmp4j)](LICENSE)
 
@@ -13,21 +13,15 @@ Usage
 
 ### Dependency
 
-fsmp4j is published to [GitHub Packages](https://github.com/FredrikJDahlberg/fsmp4j/packages):
+fsmp4j is published through [JitPack](https://jitpack.io/#FredrikJDahlberg/fsmp4j), built from the git release tags:
 
 ```groovy
 repositories {
-    maven {
-        url = uri('https://maven.pkg.github.com/FredrikJDahlberg/fsmp4j')
-        credentials {
-            username = System.getenv('GITHUB_ACTOR')
-            password = System.getenv('GITHUB_TOKEN')
-        }
-    }
+    maven { url = uri('https://jitpack.io') }
 }
 
 dependencies {
-    implementation 'org.limitless:fsmp4j:<version>'
+    implementation 'com.github.FredrikJDahlberg:fsmp4j:<tag>'
 }
 ```
 
@@ -105,6 +99,12 @@ You require the following to build fsmp4j
 Full clean and build:
 
     $ ./gradlew
+
+### Release
+
+Set the version, commit, and push a `v<version>` tag; JitPack builds the tag the first time it is requested:
+
+    $ .github/tag-release.sh 1.0.8
 
 Benchmarks
 ----------
