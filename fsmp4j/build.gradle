@@ -37,8 +37,9 @@ tasks.named('jar') {
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            groupId = 'org.limitless'
+            groupId = findProperty('publishGroup') ?: 'org.limitless'
             artifactId = 'fsmp4j'
+            version = findProperty('publishVersion') ?: project.version
             from components.java
         }
     }
