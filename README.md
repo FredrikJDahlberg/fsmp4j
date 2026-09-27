@@ -127,6 +127,24 @@ Results are printed and saved to `fsmp4j-benchmarks/build/results/jmh/results.js
 * `PoolGrowthBenchmark` measures the cost per block of filling an empty pool with one million blocks, including
   allocating new segments, next to allocating one million heap objects.
 
+References
+----------
+
+Ben Kenwright. *Fast Efficient Fixed-Size Memory Pool: No Loops and No Overhead*. arXiv:2210.16471, 2022.
+<https://doi.org/10.48550/arXiv.2210.16471>
+
+```bibtex
+@misc{kenwright2022fast,
+  title         = {Fast Efficient Fixed-Size Memory Pool: No Loops and No Overhead},
+  author        = {Kenwright, Ben},
+  year          = {2022},
+  eprint        = {2210.16471},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AR},
+  doi           = {10.48550/arXiv.2210.16471}
+}
+```
+
 License
 -------
 
