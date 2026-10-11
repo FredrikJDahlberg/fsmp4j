@@ -1,4 +1,5 @@
 rootProject.name = 'fsmp4j'
 include 'fsmp4j'
 include 'fsmp4j-benchmarks'
+include 'fsmp4j-examples'
 

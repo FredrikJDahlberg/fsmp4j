@@ -89,6 +89,14 @@ Closing the arena releases all blocks. `BlockPool` is also `AutoCloseable` and c
 close one or the other, not both. The factory passed to `builder` must return a new flyweight on each call.
 A pool is not thread-safe.
 
+### Examples
+
+[`fsmp4j-examples`](fsmp4j-examples/src/main/java/org/limitless/fsmp4j/examples) holds runnable examples.
+`OrderBookExample` keeps live orders in a pool, indexes them by id with their block addresses, updates and
+cancels orders, and shows a freed block being reused:
+
+    $ ./gradlew :fsmp4j-examples:run
+
 Build
 -----
 

@@ -1,0 +1,19 @@
+plugins {
+    id 'application'
+}
+
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(23)
+    }
+}
+
+dependencies {
+    implementation project(':fsmp4j')
+}
+
+application {
+    mainClass = 'org.limitless.fsmp4j.examples.OrderBookExample'
+}

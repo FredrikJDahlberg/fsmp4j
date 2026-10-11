@@ -23,9 +23,10 @@ Requires Java 23.
 
 ## Project Structure
 
-Two subprojects:
+Three subprojects:
 - `fsmp4j/` — the library (published as `org.limitless:fsmp4j:1.0.1`)
 - `fsmp4j-benchmarks/` — JMH benchmarks that depend on the library
+- `fsmp4j-examples/` — runnable examples (`./gradlew :fsmp4j-examples:run`)
 
 ## Architecture
 
