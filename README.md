@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.jpg" alt="fsmp4j logo" width="600">
+</p>
+
 Fast Efficient Fixed-Size Memory Pool For Java
 ==============================================
 
